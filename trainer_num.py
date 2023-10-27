@@ -27,7 +27,7 @@ if __name__ == "__main__":
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
     # Initialize your DataLoader here, just as you did before
-    dataset_path = "/home/fran/DATA/AFQ"
+    dataset_path = "/media/francesc/DATA1/PROJECT_DATA/AFQ"
     csv_path = os.path.join(dataset_path, "sdmt.csv")
     full_dataset = AFQ_Loader(dataset_path, csv_path)
 
@@ -49,7 +49,7 @@ if __name__ == "__main__":
 
         writer = SummaryWriter(f'runs/AFQ_experiment_fold_{fold}')
 
-        model = ResNet50(num_classes=1, channels=2).to(device)
+        model = ResNet50(num_classes=1, channels=5).to(device)
         criterion = nn.MSELoss()
         optimizer = optim.Adam(model.parameters(), lr=0.001)
 

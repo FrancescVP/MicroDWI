@@ -7,57 +7,73 @@ from glob import glob
 from dipy.io.image import load_nifti
 from torch.utils.data import Dataset, DataLoader
 
-from monai.transforms import Compose, Resize, RandFlip, RandZoom, NormalizeIntensity
+from monai.transforms import (
+    Compose,
+    Resize,
+    NormalizeIntensity,
+    RandAffine,
+    RandGaussianNoise,
+    RandGaussianSmooth,
+    RandAdjustContrast,
+    RandScaleIntensity,
+    RandFlip,
+    RandRotate90,
+    Rand3DElastic
+)
 
 class AFQ_Loader(Dataset):
     def __init__(self, path, csv_path):
         self.path = path
-        self.sequences = ["micro_fa", "tensor_fa"]
-        self.label_dict = {
-            0:0,
-            1:1,
-            2:1,
-            3:1,
-            4:2,
-            5:2,
-            6:3,
-            7:3, 
-            8:3,
-            9:3
-        }
-        self.subjects = [
-            re.search(r'sub-(FIS|REHHV)_\d+_\d+', i).group() for i in glob(os.path.join(self.path, "*{0}*".format(self.sequences[0]))) if "REHEM" not in i
-        ] + [
-            re.search(r'sub-REHEM\d+', i).group() for i in glob(os.path.join(self.path, "*{0}*".format(self.sequences[0]))) if "REHEM" in i
-        ]
+        self.sequences = ["SMT/*micro_fa*", "NODDI/*OD*", "NODDI/*ICVF*", "FWDTI/FA*", "FWDTI/RD*"]
+        self.subjects = [i for i in os.listdir(self.path)]
+        self.subjects.remove("sdmt.csv")
 
         self.df = pd.read_csv(csv_path).set_index("Unnamed: 0")
-
-        #self.transform = Compose([
-        #    Resize((112, 112, 112)),
-        #    RandFlip(prob=0.2, spatial_axis=3),
-        #    RandZoom(prob=0.1, min_zoom=0.85, max_zoom=1.15)
-        #    ])
-        self.transform = Compose([
+        
+        self.transforms = Compose([
             Resize((112, 112, 112)),
+            # Normalization (choose one based on your needs)
             NormalizeIntensity(),
-            RandZoom(prob=0.1, min_zoom=0.85, max_zoom=1.15)
-            ])
+            # ScaleIntensity(minv=0.0, maxv=1.0),
+            # MinMaxScaleIntensity(mini=0.0, maxi=1.0, clip=True),
+
+            # Spatial Augmentations
+            #RandAffine(
+            #    prob=0.5,
+            #    translate_range=(50, 50, 50),
+            #    rotate_range=(np.pi/36, np.pi/36, np.pi/36),
+            #    scale_range=(0.1, 0.1, 0.1)
+            #),
+            #Rand3DElastic(
+            #    prob=0.5,
+            #    sigma_range=(5,7),
+            #    magnitude_range=(1, 2)
+            #),
+            RandFlip(spatial_axis=[0, 1, 2], prob=0.5),
+            RandRotate90(prob=0.5, max_k=3, spatial_axes=(0, 1)),
+
+            # Intensity Augmentations
+            #RandAdjustContrast(prob=0.5),
+            RandScaleIntensity(factors=(0.8, 1.2), prob=0.5),
+            #RandGaussianNoise(prob=0.5),
+            #RandGaussianSmooth(prob=0.5)
+        ])
     def __len__(self):
         return len(self.subjects)
 
     def __getitem__(self, idx):
-        img_shape = (2, 112, 112, 112)
+        img_shape = (5, 112, 112, 112)
         img_data = np.zeros(img_shape)
         
         subject_id = self.subjects[idx]
-
+        print(subject_id)
         for i, sequence in enumerate(self.sequences):
-            file_path = os.path.join(self.path, f"{subject_id}_model-{sequence}.nii.gz")
+            print(glob(os.path.join(self.path, subject_id, sequence)))
+            file_path = glob(os.path.join(self.path, subject_id, sequence))[0]
 
             if os.path.exists(file_path):
                 img_aux, _ = load_nifti(file_path)
-                img_aux = self.transform(
+                img_aux = self.transforms(
                     np.expand_dims(img_aux, axis=0)
                 )
                 img_data[i, ...] = img_aux[0, ...]
@@ -65,13 +81,11 @@ class AFQ_Loader(Dataset):
                 print(f"File not found: {file_path}")
 
         if "FIS" in subject_id:  
-            label = self.df[self.df.redcap_event_name == "followup1_arm_1"].loc[subject_id[4:-3], "sdmt"]
-        elif "REHHV" in subject_id:
-            label = np.random.uniform(70, 80)
+            label = self.df[self.df.redcap_event_name == "followup1_arm_1"].loc[subject_id[:-3], "sdmt"]
+        elif "REHEM" in subject_id:
+            label = self.df[self.df.redcap_event_name == "baseline_arm_1"].loc[subject_id[:-3].lower(), "sdmt"]
         else:
-            sub_name = "rehem_" + str(int(subject_id[-4:-2])) if int(subject_id[-4:-2]) > 9 else "rehem_0" + str(int(subject_id[-4:-2]))
-            sub_name = sub_name if int(subject_id[-4:-2]) != 0 else "rehem_" + str(int(subject_id[-5:-2]))
-            label = self.df[self.df.redcap_event_name == "baseline_arm_1"].loc[sub_name, "sdmt"]
+            label = np.random.uniform(70, 80)
         #label = label[0] if label.size else 0
         label = label if str(label) != "nan" else 0 
 
